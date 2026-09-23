@@ -14,8 +14,11 @@ API → coletor → validação → (variação > 30%? → revisão) → Firesto
 |---|---|---|
 | Banco Mundial (API oficial, sem chave) | `indicadores_pais` | PIB per capita, inflação, nível de preços, câmbio e acesso à Internet dos 6 países do protótipo |
 | Eurostat (API oficial, sem chave) | `indicadores_pais` | Nível de preços do consumo das famílias (EU27_2020=100), só Portugal/Alemanha/Irlanda/Espanha |
+| (calculado do nível de preços) | `paises` (patch) | `custo_vida_mensal_usd` estimado (baseline BLS × nível de preços) |
 | Arbeitnow (API pública, sem chave) | `vagas` | Vagas de TI, com tecnologias extraídas do texto |
 | (calculado das vagas) | `radar_tecnologias` | Índice 0–100 por tecnologia, com o método e o tamanho da amostra |
+| Adzuna (precisa de chave gratuita; cobertura a confirmar) | `indicadores_pais` | Salário médio anunciado em vagas de TI — ver seção própria, ainda não integrada a `executar.py` |
+| Curadoria humana (`coletor/curadoria.py`) | `paises` (patch) / `trilhas_qualificacao` | Vistos e trilhas de qualificação, com validação e proveniência |
 
 **Não coberto:** custo de vida como valor absoluto em USD/mês (Eurostat e Banco Mundial só dão índices relativos, não uma cifra pronta), salário médio em TI, vistos e trilhas (curadoria humana). Veja "Próximos passos".
 
@@ -27,7 +30,9 @@ Nesta pasta ainda não há ambiente virtual (o do app fica na pasta do app). Na 
 python3 -m venv .venv                          # se falhar: sudo apt install python3-venv python3-full
 source .venv/bin/activate                      # o prompt passa a mostrar (.venv)
 pip install -r requirements-coletor.txt
-python -m unittest discover -s tests -v        # 72 testes offline (1 pode ficar "skipped" se faltar `firebase-admin` ou se o `seed_firestore.py` na pasta ainda for uma versão antiga sem `id_seguro`) (não usam a internet)
+python -m unittest discover -s tests -v        # 94 testes offline, sem usar a internet
+                                                # (1 pode ficar "skipped" se faltar `firebase-admin`,
+                                                # ou se o seed_firestore.py na pasta for uma versão antiga sem id_seguro)
 python -m coletor.executar --fonte todas       # consulta as APIs e grava JSON em saida/ (não toca no Firestore)
 ```
 
@@ -243,6 +248,118 @@ isso, o patch cairia num documento novo e órfão em vez de mesclar no país cer
 `seed_firestore.id_seguro` (roda de verdade quando `firebase-admin` está instalado,
 como na sua máquina; aqui no ambiente de teste sem essa dependência, esse teste
 específico é pulado, com aviso — os demais continuam rodando).
+
+## Salário médio em TI — etapa 1 (Adzuna), precisa da sua confirmação
+
+`coletor/salario.py` usa o endpoint `history` do Adzuna (salário médio anunciado
+por mês, formato confirmado na documentação oficial). Diferente das fontes
+anteriores, esta tem DUAS coisas que só você consegue confirmar, porque exigem uma
+credencial que este ambiente não tem como obter:
+
+1. **Credencial gratuita:** crie em https://developer.adzuna.com/signup (poucos
+   minutos, sem cartão) e exporte:
+   ```bash
+   export ADZUNA_APP_ID=...
+   export ADZUNA_APP_KEY=...
+   ```
+2. **Cobertura de país:** a lista `PAISES_CANDIDATOS` no módulo é um palpite
+   fundamentado, não confirmado. Rode:
+   ```bash
+   python -m coletor.salario --verificar
+   ```
+   e me envie a saída — só entram no coletor de verdade os países que responderem
+   com dado. Alemanha, Canadá e Espanha são bem prováveis; Portugal, Irlanda e
+   Emirados Árabes Unidos, menos.
+3. **Moeda:** a documentação não diz explicitamente em qual moeda o valor volta
+   (o mais provável é a moeda local de cada mercado). Por isso todo documento sai
+   com `moeda_confirmada: False` — nada é convertido para USD até isso ser
+   confirmado (o valor bruto aparece no `--verificar` para você comparar com uma
+   vaga real no site do Adzuna daquele país).
+
+Ainda não está em `executar.py` — entra assim que você confirmar os três pontos
+acima. O resto (coleta por país, tratamento de erro por país sem derrubar os
+demais, proveniência) já está pronto e testado com o formato de resposta oficial.
+
+## INCIDENTE REAL (23/09/2026): app quebrou com KeyError: 'regiao'
+
+Isto já aconteceu em produção: a coleta automática (`--publicar`) rodou ANTES de
+`seed_firestore.py` ter criado os documentos-base dos países. O patch de
+`custo_vida_mensal_usd` criou documentos com SÓ esse campo, sem `regiao` — e como
+NENHUM documento da coleção tinha esse campo, a coluna nem existia no DataFrame, e
+`app.py` quebrava com `KeyError: 'regiao'` ao montar o filtro de região do MundoDev.
+
+**NÃO conserte rodando `seed_firestore.py` de novo.** Ele grava com `.set()` SEM
+`merge=True` — sobrescreve o documento INTEIRO. Rodá-lo agora apagaria o
+`custo_vida_mensal_usd` já calculado (voltaria ao valor de demonstração) e, pior,
+resseeda `vagas` e `radar_tecnologias` por inteiro, revertendo os dados reais já
+coletados (vagas da Arbeitnow, radar calculado) para os dados de demonstração.
+
+**Conserto certo:**
+```bash
+python -m coletor.reparar_paises --publicar
+```
+Isto mescla (merge=True) só os campos de base do país (região, coordenadas, idioma,
+visto, dificuldade do visto, demanda em TI, resumo) a partir do `data.py` — sem
+tocar em `custo_vida_mensal_usd`/`salario_medio_ti_usd` nem nas outras 3 coleções.
+Testado ponta a ponta reproduzindo o `KeyError` real com pandas antes de corrigir
+(ver `tests/test_reparar_paises.py`).
+
+**Se `--publicar` (deste ou de qualquer outro comando) travar com
+`DEADLINE_EXCEEDED` / `_InactiveRpcError`:** isso é erro de REDE, não do código —
+o Firestore escreve por gRPC, e redes de campus/instituição costumas liberar HTTPS
+comum (é por isso que `--verificar`/`--testar`/coleta em modo teste funcionam) mas
+bloquear ou atrapalhar gRPC. A biblioteca oficial do Firestore para Python não tem
+opção de trocar para REST (é gRPC-only, ao contrário de outras bibliotecas do
+Google Cloud) — não adianta configurar isso.
+
+Alternativa que já se provou funcionar: rodar pelo GitHub Actions, cuja rede não
+tem essa restrição (foi assim que os documentos incompletos foram publicados em
+primeiro lugar). O workflow já tem a opção `reparar_paises` no menu do
+`workflow_dispatch` — aba **Actions** do repositório → **Coleta automática de
+dados** → **Run workflow** → escolha `reparar_paises` no menu → **Run workflow**.
+
+## Publicar no Firestore de verdade — ORDEM IMPORTA
+
+Com a chave do Firebase em mãos (veja `guia_firebase.md`), a ordem certa é:
+
+```bash
+python seed_firestore.py                        # 1º: cria os documentos-base (país, vaga, radar, trilha demo)
+python -m coletor.executar --fonte todas --publicar   # 2º: atualiza com dados reais
+```
+
+**Por quê nessa ordem:** o coletor grava `custo_vida_mensal_usd` como um PATCH no
+documento do país (só esse campo, mesclado com `merge=True`). Se o documento do
+país ainda não existir (banco novo, sem `seed_firestore.py` rodado antes), o patch
+cria um documento faltando região, idioma, visto etc. — a ficha do país ficaria
+incompleta no app. Rodar o seed primeiro garante que a base já está lá para o
+patch se juntar a ela.
+
+Depois disso, `streamlit run app.py` deve mostrar "🔥 Conectado ao Firestore
+(Firebase)" na barra lateral, e a ficha do país já com o selo "🧮 Custo de vida
+estimado".
+
+## Vistos e trilhas — curadoria humana, com validação (não é coleta automática)
+
+`coletor/curadoria.py` não busca nada de fonte nenhuma — é para quando alguém da
+equipe pesquisar manualmente (ex.: o portal de imigração de um país, ou o site de
+um certificador) e quiser publicar isso com o mesmo rigor dos dados automáticos:
+proveniência obrigatória (`fonte`, `verificado_em`, `verificado_por`) e validação
+antes de gravar.
+
+1. Copie `curadoria/vistos_modelo.json` ou `curadoria/trilhas_modelo.json`,
+   preencha com as entradas reais (uma por país ou por trilha).
+2. Rode em modo teste primeiro:
+   ```bash
+   python -m coletor.curadoria --colecao paises --arquivo meus_vistos.json
+   python -m coletor.curadoria --colecao trilhas_qualificacao --arquivo minhas_trilhas.json
+   ```
+3. Confira `saida/paises.json` / `saida/trilhas_qualificacao.json`, e só então
+   adicione `--publicar`.
+
+Cada entrada de visto é um PATCH no documento do país (como o custo de vida
+estimado) — só os campos de visto, o resto do país continua intacto. Uma entrada
+sem `verificado_por` ou com `verificado_em` que não seja uma data real é
+rejeitada, sem derrubar as demais entradas do lote.
 
 ## Próximos passos
 

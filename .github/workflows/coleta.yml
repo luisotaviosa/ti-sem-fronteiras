@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       fonte:
-        description: "Fonte a coletar"
+        description: "Fonte a coletar (ou 'reparar_paises' para o reparo pontual)"
         type: choice
-        options: [todas, banco_mundial, arbeitnow]
+        options: [todas, banco_mundial, custo_vida, arbeitnow, reparar_paises]
         default: todas
 
 permissions:
@@ -37,9 +37,16 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Coletar e publicar no Firestore
+        if: github.event.inputs.fonte != 'reparar_paises'
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: python -m coletor.executar --fonte "${{ github.event.inputs.fonte || 'todas' }}" --publicar
+
+      - name: Reparar campos de base dos países (regiao/idioma/visto/etc.)
+        if: github.event.inputs.fonte == 'reparar_paises'
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python -m coletor.reparar_paises --publicar
 
       - name: Guardar os relatórios da execução
         if: always()
