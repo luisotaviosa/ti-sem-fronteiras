@@ -1,0 +1,5 @@
+streamlit>=1.35
+pandas>=2.0
+plotly>=5.20
+pydeck>=0.9
+firebase-admin>=6.5
