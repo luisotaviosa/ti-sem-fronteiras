@@ -38,6 +38,7 @@ df_paises = pd.DataFrame(fdb.carregar_paises())
 df_vagas = pd.DataFrame(fdb.carregar_vagas())
 df_radar = pd.DataFrame(fdb.carregar_radar_tecnologias())
 df_indicadores = pd.DataFrame(fdb.carregar_indicadores_pais())
+df_brasil_regioes = pd.DataFrame(fdb.carregar_brasil_regioes())
 TRILHAS_QUALIFICACAO = fdb.carregar_trilhas_qualificacao()
 
 
@@ -136,14 +137,41 @@ def pagina_inicio():
 # ---------------------------------------------------------------------------
 # PÁGINA: MUNDODEV
 # ---------------------------------------------------------------------------
+def _normalizar(texto: str) -> str:
+    """'São Paulo' -> 'sao paulo' — busca sem acento/maiúscula, só com a lib padrão."""
+    import unicodedata
+    if not texto:
+        return ""
+    sem_acento = unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode("ascii")
+    return sem_acento.lower().strip()
+
+
 def pagina_mundodev():
     st.title("🗺️ MundoDev")
     st.caption("Módulo I — Inteligência Geográfica")
 
-    regioes = ["Todas"] + sorted(df_paises["regiao"].unique().tolist())
-    regiao_sel = st.selectbox("Filtrar por região", regioes)
+    col_busca, col_regiao = st.columns([2, 1])
+    with col_busca:
+        busca = st.text_input(
+            "🔎 Buscar por país, estado ou região",
+            placeholder="ex.: Portugal, Bahia, Sudeste...",
+        )
+    with col_regiao:
+        regioes = ["Todas"] + sorted(df_paises["regiao"].unique().tolist())
+        regiao_sel = st.selectbox("Filtrar por região", regioes)
 
     df_filtrado = df_paises if regiao_sel == "Todas" else df_paises[df_paises["regiao"] == regiao_sel]
+
+    if busca.strip():
+        alvo = _normalizar(busca)
+        # busca em país, região e (quando existir) país-pai, ex.: estados/regiões do Brasil
+        campos_busca = ["pais", "regiao"] + (["pais_pai"] if "pais_pai" in df_filtrado.columns else [])
+        mascara = df_filtrado[campos_busca].apply(
+            lambda linha: any(alvo in _normalizar(v) for v in linha if v), axis=1
+        )
+        df_filtrado = df_filtrado[mascara]
+        if df_filtrado.empty:
+            st.info(f"Nenhum resultado para \"{busca}\". Tente outro termo ou limpe o campo de busca.")
 
     fig = px.bar(
         df_filtrado.sort_values("salario_medio_ti_usd"),
@@ -307,6 +335,54 @@ def pagina_mundodev():
                 fonte_txt = _campo(row, "fonte") or "—"
                 coletado_txt = str(_campo(row, "coletado_em") or "")[:10]
                 st.caption(f"Fonte: {fonte_txt}" + (f" · coletado em {coletado_txt}" if coletado_txt else ""))
+
+    # -----------------------------------------------------------------
+    # 🇧🇷 Brasil por dentro — layout PRÓPRIO, não reaproveita a ficha de país
+    # acima: uma região do Brasil não tem visto nem vagas internacionais, e os
+    # indicadores vêm de outra fonte (IBGE/SIDRA), com outro significado.
+    # -----------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🇧🇷 Brasil por dentro — as 5 Grandes Regiões")
+    st.caption(
+        "Indicadores oficiais do IBGE (Sistema de Contas Regionais e PNAD Contínua), "
+        "por Grande Região. Aqui não há visto nem vagas internacionais — é o mercado "
+        "de trabalho brasileiro visto por dentro."
+    )
+    if df_brasil_regioes.empty:
+        st.info(
+            "Ainda sem dados coletados para as regiões do Brasil. "
+            "Ver `coletor/ibge.py` no repositório do coletor."
+        )
+    else:
+        st.warning(
+            "⚠️ Não existe, hoje, um índice oficial de custo de vida comparável entre "
+            "regiões do Brasil (IPCA/INPC medem variação de preços no tempo, não nível "
+            "de preços entre regiões — não são comparáveis entre si dessa forma). Os "
+            "indicadores abaixo são os que realmente permitem comparar as regiões.",
+            icon="ℹ️",
+        )
+        indicadores_disponiveis = sorted(df_brasil_regioes["descricao"].unique().tolist())
+        indicador_sel = st.selectbox("Indicador", indicadores_disponiveis, key="indicador_brasil")
+        df_ind = df_brasil_regioes[df_brasil_regioes["descricao"] == indicador_sel]
+
+        fig_br = px.bar(
+            df_ind.sort_values("valor"),
+            x="valor", y="regiao", orientation="h",
+            labels={"valor": _campo(df_ind.iloc[0], "unidade") or "valor", "regiao": "Região"},
+            title=indicador_sel,
+        )
+        st.plotly_chart(fig_br, use_container_width=True)
+
+        cols_br = st.columns(5)
+        for i, (_, row) in enumerate(df_ind.sort_values("regiao").iterrows()):
+            with cols_br[i % 5]:
+                st.metric(row["regiao"], f"{row['valor']:,.0f}")
+        r0 = df_ind.iloc[0]
+        st.caption(
+            f"Ano de referência: {_campo(r0, 'ano_referencia') or '—'} · "
+            f"Fonte: {_campo(r0, 'fonte') or '—'} · "
+            f"coletado em {str(_campo(r0, 'coletado_em') or '')[:10]}"
+        )
 
 
 # ---------------------------------------------------------------------------

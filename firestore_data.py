@@ -130,3 +130,13 @@ def carregar_indicadores_pais() -> list:
     não como erro.
     """
     return _carregar_colecao("indicadores_pais", [])
+
+
+def carregar_brasil_regioes() -> list:
+    """PIB per capita e renda média por Grande Região do Brasil (coletor/ibge.py, IBGE/SIDRA).
+
+    Coleção PRÓPRIA, separada de `paises`: uma região do Brasil não tem visto, nem
+    vagas internacionais, então tem um conjunto de campos diferente (ver app.py,
+    seção "Brasil por dentro"). Sem fallback local — volta vazia em modo demonstração.
+    """
+    return _carregar_colecao("brasil_regioes", [])

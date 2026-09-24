@@ -30,7 +30,7 @@ Nesta pasta ainda não há ambiente virtual (o do app fica na pasta do app). Na 
 python3 -m venv .venv                          # se falhar: sudo apt install python3-venv python3-full
 source .venv/bin/activate                      # o prompt passa a mostrar (.venv)
 pip install -r requirements-coletor.txt
-python -m unittest discover -s tests -v        # 98 testes offline, sem usar a internet
+python -m unittest discover -s tests -v        # 108 testes offline, sem usar a internet
                                                 # (1 pode ficar "skipped" se faltar `firebase-admin`,
                                                 # ou se o seed_firestore.py na pasta for uma versão antiga sem id_seguro)
 python -m coletor.executar --fonte todas       # consulta as APIs e grava JSON em saida/ (não toca no Firestore)
@@ -177,6 +177,36 @@ sozinho (ver "Próximos passos").
 **Cobertura:** só Portugal, Alemanha, Irlanda e Espanha — o Eurostat não publica
 para Canadá nem Emirados Árabes Unidos, que continuam com o nível de preços já
 calculado do Banco Mundial (`PA.NUS.PPPC.RF`) como única referência.
+
+## Brasil por dentro (IBGE/SIDRA) — etapa de descoberta, 5 Grandes Regiões
+
+`coletor/ibge.py` cobre Norte, Nordeste, Sudeste, Sul e Centro-Oeste (decisão
+tomada com o usuário em 24/09/2026: começar pelas 5 regiões, não os 27
+estados). Grava numa coleção PRÓPRIA, `brasil_regioes` — não em `paises` —
+porque uma região do Brasil não tem visto nem vagas internacionais.
+
+**Achado importante, antes de programar:** pesquisei se existe um índice
+oficial do IBGE para comparar custo de vida ENTRE regiões, e a resposta é
+não. IPCA/INPC medem variação de preços NO TEMPO em cada região (índices
+temporais bilaterais) — não servem para comparar nível de preços ENTRE
+regiões. Um índice assim existe só em pesquisa acadêmica (ex.: Menezes &
+Azzoni, método CPD sobre dados da POF), não como série oficial via API. Por
+isso este coletor automatiza dois indicadores genuinamente comparáveis —
+PIB per capita (Contas Regionais) e rendimento médio real (PNAD Contínua) —
+e a interface (`app.py`) avisa explicitamente que não há comparação oficial
+de custo de vida entre regiões.
+
+**Falta confirmar os IDs dos agregados SIDRA** (números arbitrários, não
+adivináveis). Rode:
+```bash
+python -m coletor.ibge --descobrir "PIB per capita"
+python -m coletor.ibge --descobrir "rendimento médio"
+```
+e me envie a saída de cada um; depois `--metadados <id>` do que parecer certo,
+para eu confirmar o `variavel_id` e finalizar os padrões de `coletar()`
+(mesmo processo que já demos com o Eurostat). O decodificador da resposta já
+está pronto e testado com o formato documentado, incluindo os códigos de
+ausência do SIDRA (`..`, `X`, `-`) — só falta o ID de verdade.
 
 ## Custo de vida (Eurostat): bug real encontrado e corrigido — não era o código do indicador
 
@@ -336,7 +366,7 @@ só o custo de vida; no dia em que o Adzuna entrar de vez, o salário também fi
 protegido automaticamente, sem precisar mexer no script de novo). Os campos de
 base (região, idioma, visto etc.) continuam sempre atualizados a partir do
 `data.py`, como antes. Reproduzido e corrigido com pandas de verdade antes de
-entregar — ver `tests/test_reparar_paises.py`.
+entregar — ver `tests/test_reparar_paises.py` (esse teste específico se auto-pula quando pandas não está instalado, como no GitHub Actions — pandas não é dependência do coletor, só do app; foi exatamente isso que quebrou o CI na primeira versão deste reparo, e ficou corrigido).
 
 Se rodar `python -m coletor.reparar_paises --publicar` e a mensagem de log disse
 "Reparo concluído" mas o app ainda quebrar com um `KeyError` em OUTRO campo, é o
