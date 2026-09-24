@@ -538,7 +538,7 @@ class TestExecutarIbge(unittest.TestCase):
                 return [{
                     "id": ibge.RENDIMENTO_AGREGADO_ID, "variavel": "Rendimento", "unidade": "Reais",
                     "resultados": [{"series": [
-                        {"localidade": {"id": v, "nome": k}, "serie": {"2025": "3000.0"}}
+                        {"localidade": {"id": v, "nome": k}, "serie": {"202502": "3000.0"}}
                         for k, v in ibge.REGIOES.items()]}]}]
             raise AssertionError(url)
 

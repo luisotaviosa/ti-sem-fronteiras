@@ -126,6 +126,16 @@ class TestSeriePorRegiao(unittest.TestCase):
         self.assertEqual(vistos.get("classificacao"), "2[6794]")
 
 
+    def test_periodo_trimestral_de_6_digitos_vira_so_o_ano_4_digitos(self):
+        # Bug real de produção (24/09/2026): a PNAD Contínua trimestral devolve o
+        # período como "AAAAQQ" (ano + trimestre móvel, ex.: "202502"), não só o
+        # ano. Sem tratar isso, "ano_referencia" virava 202502 e era rejeitado na
+        # validação por estar fora de qualquer faixa plausível de ano.
+        resp = _resposta("5436", "Rendimento", "Reais", {"Sudeste": {"202502": "3200.0"}})
+        por_regiao, _, _ = ibge._serie_por_regiao("5436", "5932", http=lambda u, p=None: resp)
+        self.assertEqual(por_regiao["Sudeste"], {2025: 3200.0})   # e não {202502: 3200.0}
+
+
 class TestColetarPibPerCapita(unittest.TestCase):
     def _http(self, pib_por_regiao, pop_por_regiao):
         def http(url, params=None):
@@ -184,7 +194,7 @@ class TestColetarRendimentoMedio(unittest.TestCase):
             vistos.update(params or {})
             return _resposta(ibge.RENDIMENTO_AGREGADO_ID,
                              "Rendimento médio mensal real ... habitualmente recebido no trabalho principal",
-                             "Reais", {"Sudeste": {"2024": "2900.0", "2025": "3050.0"}})
+                             "Reais", {"Sudeste": {"202404": "2900.0", "202502": "3050.0"}})
         docs = ibge.coletar_rendimento_medio(http=http, agora=AGORA)
         self.assertEqual(vistos.get("classificacao"), "2[6794]")   # Sexo = Total
         sudeste = next(d for d in docs if d["regiao"] == "Sudeste")

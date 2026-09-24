@@ -100,10 +100,20 @@ def _serie_por_regiao(agregado_id: str, variavel_id: str, periodo: str = "-6",
         if nome_regiao not in regioes:
             continue
         anos = {}
-        for ano_txt, valor_bruto in (serie.get("serie") or {}).items():
+        for periodo_txt, valor_bruto in (serie.get("serie") or {}).items():
             valor = _valor_numerico(valor_bruto)
-            if valor is not None and ano_txt.isdigit():
-                anos[int(ano_txt)] = valor
+            if valor is None or not periodo_txt.isdigit():
+                continue
+            # SIDRA: período anual = "AAAA" (4 dígitos); período trimestral (ex.: PNAD
+            # Contínua trimestral) = "AAAAQQ" (6 dígitos — ano + trimestre móvel, ex.:
+            # "202502"). Sem isso, o código do trimestre inteiro virava "ano" (202502),
+            # e caía fora de qualquer faixa plausível de ano na validação. Usamos só os
+            # 4 primeiros dígitos como ano; a granularidade do trimestre em si não é
+            # guardada — é uma simplificação (ver README_COLETOR.md), aceitável porque
+            # hoje só pedimos o período mais recente (`periodo="-1""), então não há dois
+            # trimestres do mesmo ano disputando a mesma chave.
+            ano = int(periodo_txt[:4])
+            anos[ano] = valor
         if anos:
             por_regiao[nome_regiao] = anos
     return por_regiao, bloco.get("variavel", variavel_id), bloco.get("unidade", "")

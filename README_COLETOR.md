@@ -30,7 +30,7 @@ Nesta pasta ainda não há ambiente virtual (o do app fica na pasta do app). Na 
 python3 -m venv .venv                          # se falhar: sudo apt install python3-venv python3-full
 source .venv/bin/activate                      # o prompt passa a mostrar (.venv)
 pip install -r requirements-coletor.txt
-python -m unittest discover -s tests -v        # 118 testes offline, sem usar a internet
+python -m unittest discover -s tests -v        # 119 testes offline, sem usar a internet
                                                 # (1 pode ficar "skipped" se faltar `firebase-admin`,
                                                 # ou se o seed_firestore.py na pasta for uma versão antiga sem id_seguro)
 python -m coletor.executar --fonte todas       # consulta as APIs e grava JSON em saida/ (não toca no Firestore)
@@ -265,6 +265,19 @@ confirmados e implementados:
 já está no orquestrador (`--fonte ibge`), com validação própria
 (`validar_regiao_br`, em `validacao.py`) e faixas plausíveis para cada
 indicador.
+
+**Bug real de produção (24/09/2026, 1ª execução real):** as 5 regiões do
+rendimento médio vieram todas REJEITADAS — "ano de referência fora do
+intervalo esperado". Causa: a PNAD Contínua trimestral devolve o período
+como `AAAAQQ` (ano + trimestre móvel, ex.: `202502`), não só o ano (`AAAA`,
+como a série anual do PIB). O código tratava o código do período inteiro
+como se fosse o ano, e `202502` cai fora de qualquer faixa plausível.
+Corrigido: usa só os 4 primeiros dígitos como ano. **Simplificação
+aceita conscientemente:** a granularidade do trimestre em si (qual
+trimestre, não só o ano) não é guardada no documento — hoje isso é seguro
+porque só pedimos o período mais recente (`periodo="-1"`), então não há
+dois trimestres do mesmo ano disputando a mesma chave; se um dia
+precisarmos de série histórica trimestral, isso precisa ser revisitado.
 
 **Bug real encontrado pelos próprios testes, antes de entregar:** os dois
 indicadores usavam o MESMO `id` por região (ex.: `"sudeste"` para os dois).
