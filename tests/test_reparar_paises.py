@@ -89,8 +89,17 @@ class TestReparoDoBugReal(unittest.TestCase):
             self.assertEqual(depois["alemanha"]["salario_medio_ti_usd"], 4800)
 
     def test_reproduz_com_pandas_de_verdade_o_segundo_keyerror_salario(self):
-        """Mesmo formato do incidente real: df_filtrado.sort_values('salario_medio_ti_usd')."""
-        import pandas as pd
+        """Mesmo formato do incidente real: df_filtrado.sort_values('salario_medio_ti_usd').
+
+        pandas não é dependência do coletor (só do app — ver requirements-coletor.txt),
+        então este teste extra de fidelidade se auto-pula quando pandas não está
+        instalado (ex.: no GitHub Actions, que só instala requirements-coletor.txt),
+        em vez de derrubar a suíte inteira por causa de uma dependência que não é do
+        coletor."""
+        try:
+            import pandas as pd
+        except ImportError:
+            self.skipTest("pandas não instalado (não é dependência do coletor, só do app)")
         with tempfile.TemporaryDirectory() as tmp:
             pub = Publicador(dry_run=True, saida=tmp)
             # estado logo após o PRIMEIRO reparo: regiao já presente, mas salario ainda não
