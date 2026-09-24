@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from coletor import arbeitnow, banco_mundial, custo_vida, derivados, executar
+from coletor import arbeitnow, banco_mundial, custo_vida, derivados, executar, ibge
 from coletor.modelos import id_documento
 from coletor.publicar import Publicador
 from coletor.rede import ErroColeta
@@ -511,6 +511,45 @@ class TestExecutarCustoVida(unittest.TestCase):
     def test_custo_vida_esta_no_orquestrador_e_grava_na_mesma_colecao_do_banco_mundial(self):
         self.assertIn("custo_vida", executar.FONTES)
         self.assertEqual(custo_vida.COLECAO, banco_mundial.COLECAO)   # "indicadores_pais", mesma coleção
+
+
+class TestExecutarIbge(unittest.TestCase):
+    def test_ibge_esta_no_orquestrador_e_usa_colecao_propria(self):
+        self.assertIn("ibge", executar.FONTES)
+        self.assertNotEqual(ibge.COLECAO, banco_mundial.COLECAO)
+        self.assertEqual(ibge.COLECAO, "brasil_regioes")
+
+    def test_execucao_completa_offline(self):
+        def http(url, params=None):
+            if f"/{ibge.PIB_AGREGADO_ID}/" in url:
+                return [{
+                    "id": ibge.PIB_AGREGADO_ID, "variavel": "PIB", "unidade": "Mil Reais",
+                    "resultados": [{"series": [
+                        # 400.000.000 Mil Reais ÷ 10.000.000 pessoas = R$ 40.000/ano per capita (realista)
+                        {"localidade": {"id": v, "nome": k}, "serie": {"2023": "400000000"}}
+                        for k, v in ibge.REGIOES.items()]}]}]
+            if f"/{ibge.POPULACAO_AGREGADO_ID}/" in url:
+                return [{
+                    "id": ibge.POPULACAO_AGREGADO_ID, "variavel": "População", "unidade": "Pessoas",
+                    "resultados": [{"series": [
+                        {"localidade": {"id": v, "nome": k}, "serie": {"2023": "10000000"}}
+                        for k, v in ibge.REGIOES.items()]}]}]
+            if f"/{ibge.RENDIMENTO_AGREGADO_ID}/" in url:
+                return [{
+                    "id": ibge.RENDIMENTO_AGREGADO_ID, "variavel": "Rendimento", "unidade": "Reais",
+                    "resultados": [{"series": [
+                        {"localidade": {"id": v, "nome": k}, "serie": {"2025": "3000.0"}}
+                        for k, v in ibge.REGIOES.items()]}]}]
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pub = Publicador(dry_run=True, saida=tmp)
+            resumo = executar.executar_ibge(pub, http=http)
+            self.assertEqual(resumo, {"coletados": 10, "publicados": 10, "rejeitados": 0})   # 5 regiões x 2 indicadores
+            gravados = pub.ler("brasil_regioes")
+            self.assertEqual(len(gravados), 10)
+            self.assertTrue(any(d["indicador"] == "IBGE.CALC.PIB_PER_CAPITA" for d in gravados.values()))
+            self.assertTrue(any(d["indicador"] == "IBGE.5436.5932" for d in gravados.values()))
 
     def test_execucao_completa_das_3_fontes_offline(self):
         def http_eurostat(url, params=None):

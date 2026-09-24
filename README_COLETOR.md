@@ -30,7 +30,7 @@ Nesta pasta ainda não há ambiente virtual (o do app fica na pasta do app). Na 
 python3 -m venv .venv                          # se falhar: sudo apt install python3-venv python3-full
 source .venv/bin/activate                      # o prompt passa a mostrar (.venv)
 pip install -r requirements-coletor.txt
-python -m unittest discover -s tests -v        # 108 testes offline, sem usar a internet
+python -m unittest discover -s tests -v        # 118 testes offline, sem usar a internet
                                                 # (1 pode ficar "skipped" se faltar `firebase-admin`,
                                                 # ou se o seed_firestore.py na pasta for uma versão antiga sem id_seguro)
 python -m coletor.executar --fonte todas       # consulta as APIs e grava JSON em saida/ (não toca no Firestore)
@@ -197,16 +197,85 @@ e a interface (`app.py`) avisa explicitamente que não há comparação oficial
 de custo de vida entre regiões.
 
 **Falta confirmar os IDs dos agregados SIDRA** (números arbitrários, não
-adivináveis). Rode:
+adivináveis). Primeira tentativa (24/09/2026): `--descobrir "PIB per capita"`
+só achou um indicador de TAXA DE CRESCIMENTO (não o valor absoluto — o
+agregado certo de Contas Regionais provavelmente usa "Produto Interno Bruto
+per capita" por extenso, sem a sigla); `--descobrir "rendimento médio"` trouxe
+252 resultados, ruído de pesquisas sem relação (rendimento agrícola, Censo, e
+a Pesquisa Mensal de Emprego, que já foi DESCONTINUADA e substituída pela
+PNAD Contínua). Por isso agora também tem busca por nome do LEVANTAMENTO
+(`--pesquisa`), que ignora o nome do indicador e lista tudo dentro de uma
+pesquisa conhecida — bem mais limpo que buscar pelo nome do indicador
+quando não se sabe o título exato. Rode:
 ```bash
-python -m coletor.ibge --descobrir "PIB per capita"
-python -m coletor.ibge --descobrir "rendimento médio"
+python -m coletor.ibge --pesquisa "Contas Regionais"
+python -m coletor.ibge --pesquisa "PNAD Contínua"
 ```
 e me envie a saída de cada um; depois `--metadados <id>` do que parecer certo,
 para eu confirmar o `variavel_id` e finalizar os padrões de `coletar()`
 (mesmo processo que já demos com o Eurostat). O decodificador da resposta já
 está pronto e testado com o formato documentado, incluindo os códigos de
 ausência do SIDRA (`..`, `X`, `-`) — só falta o ID de verdade.
+
+**Atualização (24/09/2026):** `--pesquisa "Contas Regionais"` e `--pesquisa
+"PNAD Contínua"` deram os dois ZERO resultados — a suposição de que esses
+nomes apareceriam literalmente na 1ª chave do catálogo estava errada
+(provavelmente essa chave agrupa por ASSUNTO amplo, tipo "Economia" ou
+"Trabalho e Rendimento", não pelo nome da pesquisa). Em vez de arriscar mais
+um palpite, adicionei:
+```bash
+python -m coletor.ibge --listar-pesquisas
+```
+que mostra o vocabulário REAL dessa chave, sem filtrar nada — para achar o
+termo certo olhando a lista de verdade, em vez de continuar chutando strings.
+
+**Atualização (24/09/2026), rodada seguinte:** com `--pesquisa`, achamos o
+agregado 5938 ("Produto Interno Bruto dos Municípios") — mas seus metadados
+mostraram que ele só tem PIB TOTAL (Mil Reais) e participações percentuais,
+NUNCA per capita. Usar o total direto seria um erro (o Sudeste "ganharia" só
+por ter mais gente, não por ser mais rico por pessoa) — o mesmo tipo de erro
+que já evitamos com o IPCA. Ainda precisamos achar a tabela de PIB per
+capita de verdade; próxima tentativa: `--pesquisa "Contas Nacionais Anuais"`.
+
+Também achamos um candidato para rendimento (agregado 5436, PNAD Contínua
+trimestral), mas o nome dele tem "por sexo" — ou seja, tem uma
+CLASSIFICAÇÃO cruzada (sexo: Total/Homens/Mulheres) que `--metadados` não
+mostrava (só imprimia variáveis e nível territorial, não classificações).
+Corrigido: `--metadados` agora também lista as classificações e marca a
+categoria que parece ser "Total", para não vir uma consulta sem querer
+quebrada por sexo.
+
+## Brasil por dentro — CONCLUÍDO (24/09/2026)
+
+Depois de várias rodadas de descoberta, os dois indicadores estão
+confirmados e implementados:
+
+- **Rendimento médio:** agregado `5436`, variável `5932` ("habitualmente
+  recebido no trabalho principal"), classificação Sexo (id `2`) = Total
+  (categoria `6794`). Vem pronto da fonte, sem cálculo.
+- **PIB per capita:** NÃO existe pronto por Grande Região no SIDRA (a única
+  tabela per capita, agregado `6784`, só tem nível nacional). Por isso é
+  CALCULADO — PIB total (agregado `5938`, variável `37`, em Mil Reais) ÷
+  população residente estimada (agregado `6579`, variável `9324`, em
+  Pessoas) — no ANO MAIS RECENTE em que as duas séries têm dado para aquela
+  região (elas têm defasagens de divulgação diferentes; nunca se divide
+  anos diferentes sem isso ficar registrado no campo `metodo`).
+
+`coletor.ibge.coletar()` já une os dois, `coletor.executar.executar_ibge()`
+já está no orquestrador (`--fonte ibge`), com validação própria
+(`validar_regiao_br`, em `validacao.py`) e faixas plausíveis para cada
+indicador.
+
+**Bug real encontrado pelos próprios testes, antes de entregar:** os dois
+indicadores usavam o MESMO `id` por região (ex.: `"sudeste"` para os dois).
+Como vão para a mesma coleção, gravar o segundo sobrescrevia
+SILENCIOSAMENTE o primeiro (merge=True mescla campo a campo, e "valor",
+"indicador" etc. têm o mesmo nome nos dois documentos) — a mesma classe de
+erro que já tínhamos corrigido para o Banco Mundial. Corrigido: o `id`
+agora inclui o indicador (`id_documento(regiao, "pib_per_capita")` /
+`id_documento(regiao, "rendimento_medio")`), com um teste de regressão
+dedicado para isso não voltar a acontecer se um terceiro indicador for
+adicionado no futuro.
 
 ## Custo de vida (Eurostat): bug real encontrado e corrigido — não era o código do indicador
 

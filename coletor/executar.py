@@ -15,12 +15,12 @@ import argparse
 import logging
 import sys
 
-from . import arbeitnow, banco_mundial, custo_vida, derivados
+from . import arbeitnow, banco_mundial, custo_vida, derivados, ibge
 from .modelos import agora_iso
 from .publicar import Publicador
 from .rede import ErroColeta, obter_json
 from .validacao import (checar_variacao, separar_validos, validar_custo_vida_estimado,
-                       validar_indicador, validar_vaga)
+                       validar_indicador, validar_regiao_br, validar_vaga)
 
 log = logging.getLogger("coletor")
 
@@ -76,6 +76,16 @@ def executar_custo_vida(pub: Publicador, http=obter_json) -> dict:
             "rejeitados": len(rejeitados), "pendentes": len(pendentes)}
 
 
+def executar_ibge(pub: Publicador, http=obter_json) -> dict:
+    """Brasil por dentro: PIB per capita (calculado) + rendimento médio, por Grande Região.
+    Grava em `brasil_regioes` — coleção própria, nunca em `paises`."""
+    docs = ibge.coletar(http=http)
+    validos, rejeitados = separar_validos(docs, validar_regiao_br)
+    _relatorio_rejeicoes("região do Brasil (IBGE)", rejeitados)
+    pub.gravar(ibge.COLECAO, validos)
+    return {"coletados": len(docs), "publicados": len(validos), "rejeitados": len(rejeitados)}
+
+
 def executar_arbeitnow(pub: Publicador, http=obter_json) -> dict:
     docs = arbeitnow.coletar(http=http)
     validos, rejeitados = separar_validos(docs, validar_vaga)
@@ -97,7 +107,7 @@ def pub_lista(pub: Publicador, colecao: str, recentes: list) -> list:
 
 
 FONTES = {"banco_mundial": executar_banco_mundial, "custo_vida": executar_custo_vida,
-         "arbeitnow": executar_arbeitnow}
+         "ibge": executar_ibge, "arbeitnow": executar_arbeitnow}
 
 
 def main(argv=None) -> int:

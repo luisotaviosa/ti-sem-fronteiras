@@ -43,6 +43,32 @@ def validar_indicador(doc: dict) -> list:
     return erros
 
 
+REGIOES_BR = {"Norte", "Nordeste", "Sudeste", "Sul", "Centro-Oeste"}
+FAIXAS_INDICADOR_BR = {
+    "IBGE.CALC.PIB_PER_CAPITA": (1_000, 500_000),   # Reais/ano; folga ampla entre regiões
+    "IBGE.5436.5932": (100, 50_000),                # Reais/mês
+}
+
+
+def validar_regiao_br(doc: dict) -> list:
+    """Para a coleção `brasil_regioes` — mesma ideia de validar_indicador, mas com
+    `regiao` (uma das 5 Grandes Regiões) em vez de `pais`."""
+    erros = [f"campo ausente: {c}" for c in _faltando(doc, ("id", "regiao", "indicador", "valor", "ano_referencia") + PROVENIENCIA)]
+    if erros:
+        return erros
+    if doc["regiao"] not in REGIOES_BR:
+        erros.append(f"regiao inválida: {doc['regiao']!r} (esperado uma de {REGIOES_BR})")
+    if not isinstance(doc["valor"], (int, float)):
+        erros.append("valor não numérico")
+    else:
+        faixa = FAIXAS_INDICADOR_BR.get(doc["indicador"])
+        if faixa and not (faixa[0] <= doc["valor"] <= faixa[1]):
+            erros.append(f"valor {doc['valor']} fora da faixa plausível {faixa}")
+    if not (1990 <= int(doc["ano_referencia"]) <= datetime.now(timezone.utc).year):
+        erros.append("ano de referência fora do intervalo esperado")
+    return erros
+
+
 def validar_custo_vida_estimado(doc: dict) -> list:
     campos = ("id", "custo_vida_mensal_usd", "custo_vida_mensal_usd_calculado",
              "custo_vida_mensal_usd_metodo", "custo_vida_mensal_usd_fonte")
