@@ -30,7 +30,7 @@ Nesta pasta ainda não há ambiente virtual (o do app fica na pasta do app). Na 
 python3 -m venv .venv                          # se falhar: sudo apt install python3-venv python3-full
 source .venv/bin/activate                      # o prompt passa a mostrar (.venv)
 pip install -r requirements-coletor.txt
-python -m unittest discover -s tests -v        # 94 testes offline, sem usar a internet
+python -m unittest discover -s tests -v        # 98 testes offline, sem usar a internet
                                                 # (1 pode ficar "skipped" se faltar `firebase-admin`,
                                                 # ou se o seed_firestore.py na pasta for uma versão antiga sem id_seguro)
 python -m coletor.executar --fonte todas       # consulta as APIs e grava JSON em saida/ (não toca no Firestore)
@@ -317,6 +317,31 @@ tem essa restrição (foi assim que os documentos incompletos foram publicados e
 primeiro lugar). O workflow já tem a opção `reparar_paises` no menu do
 `workflow_dispatch` — aba **Actions** do repositório → **Coleta automática de
 dados** → **Run workflow** → escolha `reparar_paises` no menu → **Run workflow**.
+
+## INCIDENTE 2 (23/09/2026): mesmo padrão, campo diferente (salario_medio_ti_usd)
+
+Depois do reparo do incidente 1, o app quebrou de novo — `KeyError:
+'salario_medio_ti_usd'`, mesmo padrão, campo diferente. Causa: a primeira versão
+de `reparar_paises.py` excluía `custo_vida_mensal_usd` E `salario_medio_ti_usd`
+por completo (achando que os dois já vinham de coleta automática). Mas
+`salario_medio_ti_usd` nunca teve fonte nenhuma publicada (Adzuna ainda está só
+em teste — ver seção própria) — excluí-lo sempre deixava o campo ausente para
+sempre.
+
+**Corrigido de vez:** em vez de uma lista fixa de campos "nunca toca", o reparo
+agora lê o que já existe no Firestore (`Publicador.ler("paises")`) e só preenche
+`custo_vida_mensal_usd`/`salario_medio_ti_usd` se ainda estiverem AUSENTES —
+nunca sobrescreve um valor que uma coleta automática já publicou (hoje, isso é
+só o custo de vida; no dia em que o Adzuna entrar de vez, o salário também fica
+protegido automaticamente, sem precisar mexer no script de novo). Os campos de
+base (região, idioma, visto etc.) continuam sempre atualizados a partir do
+`data.py`, como antes. Reproduzido e corrigido com pandas de verdade antes de
+entregar — ver `tests/test_reparar_paises.py`.
+
+Se rodar `python -m coletor.reparar_paises --publicar` e a mensagem de log disse
+"Reparo concluído" mas o app ainda quebrar com um `KeyError` em OUTRO campo, é o
+mesmo padrão de novo: algum campo que `data.py` tem mas que nunca foi escrito no
+Firestore. Me avise qual campo que eu ajusto.
 
 ## Publicar no Firestore de verdade — ORDEM IMPORTA
 

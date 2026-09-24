@@ -24,18 +24,34 @@ PAISES_DEMO = [
 
 
 class TestMontarPatches(unittest.TestCase):
-    def test_nunca_inclui_custo_de_vida_ou_salario(self):
-        patches = reparar_paises.montar_patches(PAISES_DEMO)
-        for p in patches:
-            self.assertNotIn("custo_vida_mensal_usd", p)
-            self.assertNotIn("salario_medio_ti_usd", p)
+    def test_sem_existentes_preenche_tudo_incluindo_custo_e_salario(self):
+        # Firestore vazio (ou pasta de teste vazia): tudo conta como ausente.
+        patches = reparar_paises.montar_patches(PAISES_DEMO, existentes={})
+        p = next(p for p in patches if p["id"] == "portugal")
+        self.assertEqual(p["custo_vida_mensal_usd"], 1100)
+        self.assertEqual(p["salario_medio_ti_usd"], 2800)
 
-    def test_inclui_os_campos_de_base(self):
-        p = reparar_paises.montar_patches(PAISES_DEMO)[0]
-        self.assertEqual(p["regiao"], "Europa Ocidental")
-        self.assertEqual(p["idioma"], "Português")
-        self.assertEqual(p["visto"], "D3")
-        self.assertEqual(p["id"], "portugal")   # mesmo esquema de id dos outros patches
+    def test_nao_sobrescreve_custo_de_vida_ja_calculado(self):
+        existentes = {"portugal": {"custo_vida_mensal_usd": 2850, "custo_vida_mensal_usd_calculado": True}}
+        p = next(p for p in reparar_paises.montar_patches(PAISES_DEMO, existentes) if p["id"] == "portugal")
+        self.assertNotIn("custo_vida_mensal_usd", p)          # não pisa no valor calculado
+        self.assertEqual(p["salario_medio_ti_usd"], 2800)      # mas preenche o que ainda falta
+
+    def test_nao_sobrescreve_salario_se_ja_existir_no_futuro(self):
+        # Simula o dia em que o Adzuna já estiver publicando salario_medio_ti_usd de verdade.
+        existentes = {"portugal": {"salario_medio_ti_usd": 3200, "moeda_confirmada": True}}
+        p = next(p for p in reparar_paises.montar_patches(PAISES_DEMO, existentes) if p["id"] == "portugal")
+        self.assertNotIn("salario_medio_ti_usd", p)
+        self.assertEqual(p["custo_vida_mensal_usd"], 1100)     # este ainda estava ausente
+
+    def test_campos_de_base_entram_sempre_mesmo_ja_existindo(self):
+        existentes = {"portugal": {"regiao": "outra coisa qualquer"}}
+        p = next(p for p in reparar_paises.montar_patches(PAISES_DEMO, existentes) if p["id"] == "portugal")
+        self.assertEqual(p["regiao"], "Europa Ocidental")   # sempre vem do data.py, sem checar existentes
+
+    def test_existentes_none_equivale_a_vazio(self):
+        self.assertEqual(reparar_paises.montar_patches(PAISES_DEMO, None),
+                         reparar_paises.montar_patches(PAISES_DEMO, {}))
 
 
 class TestReparoDoBugReal(unittest.TestCase):
@@ -68,16 +84,44 @@ class TestReparoDoBugReal(unittest.TestCase):
             self.assertEqual(depois["portugal"]["custo_vida_mensal_usd"], 2850)
             self.assertTrue(depois["portugal"]["custo_vida_mensal_usd_calculado"])
             self.assertEqual(depois["alemanha"]["custo_vida_mensal_usd"], 3788)
+            # e o SEGUNDO incidente (salario_medio_ti_usd ausente) também sai corrigido
+            self.assertEqual(depois["portugal"]["salario_medio_ti_usd"], 2800)
+            self.assertEqual(depois["alemanha"]["salario_medio_ti_usd"], 4800)
+
+    def test_reproduz_com_pandas_de_verdade_o_segundo_keyerror_salario(self):
+        """Mesmo formato do incidente real: df_filtrado.sort_values('salario_medio_ti_usd')."""
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as tmp:
+            pub = Publicador(dry_run=True, saida=tmp)
+            # estado logo após o PRIMEIRO reparo: regiao já presente, mas salario ainda não
+            pub.gravar("paises", [
+                {"id": "portugal", "regiao": "Europa Ocidental",
+                 "custo_vida_mensal_usd": 2850, "custo_vida_mensal_usd_calculado": True},
+                {"id": "alemanha", "regiao": "Europa Ocidental",
+                 "custo_vida_mensal_usd": 3788, "custo_vida_mensal_usd_calculado": True},
+            ])
+            df_antes = pd.DataFrame(list(pub.ler("paises").values()))
+            with self.assertRaises(KeyError):
+                df_antes.sort_values("salario_medio_ti_usd")
+
+            reparar_paises.main(["--saida", tmp], paises=PAISES_DEMO)
+
+            df_depois = pd.DataFrame(list(pub.ler("paises").values()))
+            df_depois.sort_values("salario_medio_ti_usd")   # não deve levantar mais
+            # e o custo de vida calculado continua intacto
+            self.assertEqual(df_depois.set_index("id").loc["portugal", "custo_vida_mensal_usd"], 2850)
 
     def test_e_seguro_rodar_de_novo_sobre_um_pais_ja_completo(self):
         with tempfile.TemporaryDirectory() as tmp:
             pub = Publicador(dry_run=True, saida=tmp)
             pub.gravar("paises", [{"id": "portugal", "regiao": "Europa Ocidental", "idioma": "Português",
-                                   "custo_vida_mensal_usd": 2850}])
+                                   "custo_vida_mensal_usd": 2850, "salario_medio_ti_usd": 3200,
+                                   "moeda_confirmada": True}])
             reparar_paises.main(["--saida", tmp], paises=PAISES_DEMO)
             portugal = pub.ler("paises")["portugal"]
             self.assertEqual(portugal["regiao"], "Europa Ocidental")
             self.assertEqual(portugal["custo_vida_mensal_usd"], 2850)   # continua intacto
+            self.assertEqual(portugal["salario_medio_ti_usd"], 3200)    # idem — não volta pro valor demo (2800)
 
     def test_nao_grava_nada_em_vagas_radar_ou_trilhas(self):
         with tempfile.TemporaryDirectory() as tmp:
