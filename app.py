@@ -35,6 +35,13 @@ CORES = {
 }
 
 df_paises = pd.DataFrame(fdb.carregar_paises())
+if not df_paises.empty and "pais" in df_paises.columns:
+    # Descarta documentos sem um "pais" de verdade (ex.: um patch de custo de vida
+    # que caiu num id errado e virou um documento órfão, sem nenhum dos campos de
+    # base) -- sem isso, um documento assim pode ser escolhido como padrão no
+    # seletor da ficha por país e quebrar a página com IndexError.
+    _valido = df_paises["pais"].notna() & (df_paises["pais"].astype(str).str.strip() != "")
+    df_paises = df_paises[_valido]
 df_vagas = pd.DataFrame(fdb.carregar_vagas())
 df_radar = pd.DataFrame(fdb.carregar_radar_tecnologias())
 df_indicadores = pd.DataFrame(fdb.carregar_indicadores_pais())
