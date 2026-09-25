@@ -293,48 +293,56 @@ def pagina_mundodev():
         st.pydeck_chart(deck, use_container_width=True)
 
     st.markdown("### Ficha por país")
-    pais_sel = st.selectbox("Escolha um país para ver detalhes", df_filtrado["pais"].tolist())
-    dados = df_paises[df_paises["pais"] == pais_sel].iloc[0]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Custo de vida (USD/mês)", f"${dados['custo_vida_mensal_usd']:,}")
-    col2.metric("Salário médio TI (USD/mês)", f"${dados['salario_medio_ti_usd']:,}")
-    col3.metric("Demanda em TI", dados["demanda_ti"])
-    if _campo(dados, "custo_vida_mensal_usd_calculado") is True:
-        st.caption(
-            "🧮 Custo de vida estimado — " + (_campo(dados, "custo_vida_mensal_usd_metodo") or "")
+    if df_filtrado.empty:
+        st.warning(
+            "Nenhum país para mostrar aqui. Se isto acontecer logo na primeira "
+            "carga da página (sem busca nem filtro aplicados), o mais provável é "
+            "que a coleção `paises` do Firestore ainda esteja vazia — rode o "
+            "`seed_firestore.py` no projeto conectado."
         )
-        fonte_cv = _campo(dados, "custo_vida_mensal_usd_fonte")
-        if fonte_cv:
-            st.caption(f"Fonte: {fonte_cv}")
-
-    st.markdown(f"**Idioma:** {dados['idioma']}")
-    st.markdown(f"**Visto recomendado:** {dados['visto']} · *Dificuldade: {dados['dificuldade_visto']}*")
-    st.markdown(f"**Resumo:** {dados['resumo']}")
-
-    st.markdown("---")
-    st.markdown("#### 🌐 Indicadores complementares (Banco Mundial)")
-    st.caption(
-        "Coletados automaticamente (ver `coletor/banco_mundial.py`). Complementam a ficha acima; "
-        "não substituem custo de vida e salário médio em TI, que têm fonte própria."
-    )
-    ind_pais = df_indicadores[df_indicadores["pais"] == pais_sel] if not df_indicadores.empty else df_indicadores
-    if ind_pais.empty:
-        st.caption("Nenhum indicador complementar coletado para este país ainda.")
     else:
-        cols_ind = st.columns(3)
-        for i, (_, row) in enumerate(ind_pais.sort_values("indicador").iterrows()):
-            with cols_ind[i % 3]:
-                st.metric(
-                    _campo(row, "descricao") or row["indicador"],
-                    f"{row['valor']:.4g}" + (f" {_campo(row, 'unidade')}" if _campo(row, "unidade") == "razão" else ""),
-                    help=f"Ano de referência: {_campo(row, 'ano_referencia') or '—'}",
-                )
-                if _campo(row, "calculado") is True:
-                    st.caption("🧮 calculado por nós (a série oficial está arquivada na fonte)")
-                fonte_txt = _campo(row, "fonte") or "—"
-                coletado_txt = str(_campo(row, "coletado_em") or "")[:10]
-                st.caption(f"Fonte: {fonte_txt}" + (f" · coletado em {coletado_txt}" if coletado_txt else ""))
+        pais_sel = st.selectbox("Escolha um país para ver detalhes", df_filtrado["pais"].tolist())
+        dados = df_paises[df_paises["pais"] == pais_sel].iloc[0]
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Custo de vida (USD/mês)", f"${dados['custo_vida_mensal_usd']:,}")
+        col2.metric("Salário médio TI (USD/mês)", f"${dados['salario_medio_ti_usd']:,}")
+        col3.metric("Demanda em TI", dados["demanda_ti"])
+        if _campo(dados, "custo_vida_mensal_usd_calculado") is True:
+            st.caption(
+                "🧮 Custo de vida estimado — " + (_campo(dados, "custo_vida_mensal_usd_metodo") or "")
+            )
+            fonte_cv = _campo(dados, "custo_vida_mensal_usd_fonte")
+            if fonte_cv:
+                st.caption(f"Fonte: {fonte_cv}")
+
+        st.markdown(f"**Idioma:** {dados['idioma']}")
+        st.markdown(f"**Visto recomendado:** {dados['visto']} · *Dificuldade: {dados['dificuldade_visto']}*")
+        st.markdown(f"**Resumo:** {dados['resumo']}")
+
+        st.markdown("---")
+        st.markdown("#### 🌐 Indicadores complementares (Banco Mundial)")
+        st.caption(
+            "Coletados automaticamente (ver `coletor/banco_mundial.py`). Complementam a ficha acima; "
+            "não substituem custo de vida e salário médio em TI, que têm fonte própria."
+        )
+        ind_pais = df_indicadores[df_indicadores["pais"] == pais_sel] if not df_indicadores.empty else df_indicadores
+        if ind_pais.empty:
+            st.caption("Nenhum indicador complementar coletado para este país ainda.")
+        else:
+            cols_ind = st.columns(3)
+            for i, (_, row) in enumerate(ind_pais.sort_values("indicador").iterrows()):
+                with cols_ind[i % 3]:
+                    st.metric(
+                        _campo(row, "descricao") or row["indicador"],
+                        f"{row['valor']:.4g}" + (f" {_campo(row, 'unidade')}" if _campo(row, "unidade") == "razão" else ""),
+                        help=f"Ano de referência: {_campo(row, 'ano_referencia') or '—'}",
+                    )
+                    if _campo(row, "calculado") is True:
+                        st.caption("🧮 calculado por nós (a série oficial está arquivada na fonte)")
+                    fonte_txt = _campo(row, "fonte") or "—"
+                    coletado_txt = str(_campo(row, "coletado_em") or "")[:10]
+                    st.caption(f"Fonte: {fonte_txt}" + (f" · coletado em {coletado_txt}" if coletado_txt else ""))
 
     # -----------------------------------------------------------------
     # 🇧🇷 Brasil por dentro — layout PRÓPRIO, não reaproveita a ficha de país
