@@ -16,7 +16,7 @@ import logging
 import sys
 
 from . import arbeitnow, banco_mundial, custo_vida, derivados, ibge
-from .modelos import agora_iso
+from .modelos import agora_iso, para_iso
 from .publicar import Publicador
 from .rede import ErroColeta, obter_json
 from .validacao import (checar_variacao, separar_validos, validar_custo_vida_estimado,
@@ -86,12 +86,12 @@ def executar_ibge(pub: Publicador, http=obter_json) -> dict:
     return {"coletados": len(docs), "publicados": len(validos), "rejeitados": len(rejeitados)}
 
 
-def executar_arbeitnow(pub: Publicador, http=obter_json) -> dict:
-    docs = arbeitnow.coletar(http=http)
+def executar_arbeitnow(pub: Publicador, http=obter_json, agora=None) -> dict:
+    docs = arbeitnow.coletar(http=http, agora=agora)
     validos, rejeitados = separar_validos(docs, validar_vaga)
     _relatorio_rejeicoes("vaga", rejeitados)
     pub.gravar(arbeitnow.COLECAO, validos)
-    removidas = pub.expirar(arbeitnow.COLECAO)        # só depois de coleta bem-sucedida
+    removidas = pub.expirar(arbeitnow.COLECAO, agora=para_iso(agora) if agora else None)  # só depois de coleta bem-sucedida
     radar = derivados.calcular_radar(pub_lista(pub, arbeitnow.COLECAO, validos),
                                     max_por_empresa=RADAR_MAX_POR_EMPRESA)
     pub.gravar(derivados.COLECAO, radar)

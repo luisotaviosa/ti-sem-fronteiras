@@ -254,7 +254,7 @@ class TestPublicadorEExecutor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pub = Publicador(dry_run=True, saida=tmp)
             r1 = executar.executar_banco_mundial(pub, http=http_bm)
-            r2 = executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR, HAUSMEISTER]]))
+            r2 = executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR, HAUSMEISTER]]), agora=AGORA)
             self.assertEqual(r1, {"coletados": 36, "publicados": 36, "rejeitados": 0, "pendentes": 0,
                                  "custo_vida_estimado_publicado": 6})
             self.assertEqual((r2["publicados"], r2["radar_publicado"]), (3, False))   # amostra < 30
@@ -424,7 +424,7 @@ class TestRadarViesEInspecao(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pub = Publicador(dry_run=True, saida=tmp)
             executar.executar_banco_mundial(pub, http=http_bm)
-            executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR]]))
+            executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR]]), agora=AGORA)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 inspecionar.main([tmp])
@@ -567,7 +567,7 @@ class TestExecutarIbge(unittest.TestCase):
             pub = Publicador(dry_run=True, saida=tmp)
             r_bm = executar.executar_banco_mundial(pub, http=http_bm)
             r_cv = executar.executar_custo_vida(pub, http=http_eurostat)
-            r_an = executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR]]))
+            r_an = executar.executar_arbeitnow(pub, http=http_an([[SYSADMIN, ARCHITEKT, SENIOR]]), agora=AGORA)
             self.assertEqual(r_cv["publicados"], 4)   # PT, DE, IE, ES
             self.assertEqual((r_bm["publicados"], r_an["publicados"]), (36, 3))
             # os dois indicadores (Banco Mundial + Eurostat) convivem na mesma coleção
