@@ -19,6 +19,9 @@ import streamlit as st
 
 import firestore_data as fdb
 
+fdb.resetar_tentativa()  # permite reconectar ao Firebase a cada execução da página,
+                         # mesmo depois de uma falha passageira (ver firestore_data.py)
+
 # ---------------------------------------------------------------------------
 # CONFIGURAÇÃO GERAL
 # ---------------------------------------------------------------------------

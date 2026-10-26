@@ -22,6 +22,25 @@ import data  # fallback local
 
 _db = None
 _modo_atual = None  # "firestore" ou "local" — usado para mostrar na sidebar
+_tentativa_feita = False  # True só durante a execução ATUAL do script (ver resetar_tentativa)
+
+
+def resetar_tentativa():
+    """Chame uma vez, bem no início de cada execução do script (app.py já faz isso).
+
+    Sem isto, uma falha passageira ao conectar — um timeout de rede, uma lentidão
+    momentânea do Firestore — marcava `_modo_atual = "local"` e isso ficava
+    valendo PARA SEMPRE enquanto o processo do Streamlit Community Cloud
+    continuasse no ar (o processo não reinicia a cada visita; só dorme por
+    inatividade ou é reimplantado). Resultado observado em produção: o app
+    ficava preso em "Firebase não conectado" até o próximo sono/redeploy,
+    mesmo com o Firestore de volta ao normal segundos depois.
+
+    Resetar este sinalizador a cada execução garante uma nova tentativa a
+    cada carregamento de página, sem repetir a tentativa várias vezes dentro
+    da MESMA execução (cada uma das 5 coleções chama _tentar_conectar)."""
+    global _tentativa_feita
+    _tentativa_feita = False
 
 
 def _secrets_firebase():
@@ -41,13 +60,18 @@ def _secrets_firebase():
 
 
 def _tentar_conectar():
-    """Inicializa o Firebase Admin SDK uma única vez. Retorna o client ou None."""
-    global _db, _modo_atual
+    """Inicializa o Firebase Admin SDK. Retorna o client ou None.
+
+    Só tenta DE NOVO uma vez por execução do script (ver _tentativa_feita);
+    uma conexão bem-sucedida fica em cache para sempre (_db), mas uma falha
+    NÃO fica — a próxima execução do script tenta reconectar normalmente."""
+    global _db, _modo_atual, _tentativa_feita
 
     if _db is not None:
         return _db
-    if _modo_atual == "local":
+    if _tentativa_feita:
         return None
+    _tentativa_feita = True
 
     try:
         import firebase_admin
